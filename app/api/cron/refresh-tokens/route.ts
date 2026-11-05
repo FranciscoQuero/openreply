@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { decryptToken, encryptToken } from "@/lib/meta/oauth";
-import { refreshLongLivedToken } from "@/lib/meta/client";
+import { isFacebookLoginToken, refreshLongLivedToken } from "@/lib/meta/client";
 
 const DAYS_BEFORE_EXPIRY = 10;
 
@@ -49,13 +49,35 @@ export async function GET(request: NextRequest) {
   const results: Array<{
     instagramAccountId: string;
     username: string;
-    status: "refreshed" | "failed";
+    status: "refreshed" | "failed" | "reconnect";
     error?: string;
   }> = [];
 
   for (const account of accountsToRefresh) {
     try {
       const currentToken = decryptToken(account.accessToken);
+      // Facebook user tokens cannot be refreshed by the server: the person
+      // has to connect again before the token expires.
+      if (isFacebookLoginToken(currentToken)) {
+        await prisma.operationalEvent.create({
+          data: {
+            workspaceId: account.workspaceId,
+            source: "TOKEN_REFRESH",
+            level: "WARNING",
+            message: `@${account.username} must be reconnected soon: its Facebook Login token expires and cannot be refreshed automatically.`,
+            payload: {
+              instagramAccountId: account.id,
+              username: account.username,
+            },
+          },
+        });
+        results.push({
+          instagramAccountId: account.id,
+          username: account.username,
+          status: "reconnect",
+        });
+        continue;
+      }
       const { accessToken: newToken, expiresIn } =
         await refreshLongLivedToken(currentToken);
       const encryptedToken = encryptToken(newToken);

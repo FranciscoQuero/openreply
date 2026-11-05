@@ -1,6 +1,39 @@
 import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
 
-function instagramGraphBase() {
+// Accounts connected through Facebook Login (see lib/meta/facebook-login.ts)
+// store their token as `fbig:<instagram account id>:<Facebook user token>`.
+// Those tokens only work on graph.facebook.com, where `me` is the Facebook
+// user, so calls that read "me" go to the Instagram account node instead.
+// Every other token is an Instagram Login token for graph.instagram.com.
+const FACEBOOK_LOGIN_PREFIX = "fbig:";
+
+export function makeFacebookLoginToken(instagramId: string, token: string) {
+  return `${FACEBOOK_LOGIN_PREFIX}${instagramId}:${token}`;
+}
+
+export function isFacebookLoginToken(stored: string) {
+  return stored.startsWith(FACEBOOK_LOGIN_PREFIX);
+}
+
+function parseToken(stored: string) {
+  if (!isFacebookLoginToken(stored)) return null;
+  const rest = stored.slice(FACEBOOK_LOGIN_PREFIX.length);
+  const sep = rest.indexOf(":");
+  return { instagramId: rest.slice(0, sep), token: rest.slice(sep + 1) };
+}
+
+/** The bare token Meta expects, without the Facebook Login prefix. */
+export function rawToken(stored: string) {
+  return parseToken(stored)?.token ?? stored;
+}
+
+/** The node that stands for the connected Instagram account. */
+function meNode(stored: string) {
+  return parseToken(stored)?.instagramId ?? "me";
+}
+
+function instagramGraphBase(stored?: string) {
+  if (stored && isFacebookLoginToken(stored)) return facebookGraphBase();
   return `https://graph.instagram.com/${getMetaGraphApiVersion()}`;
 }
 
@@ -168,12 +201,12 @@ export async function sendPrivateReply(
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase(accessToken)}/${instagramAccountId}/messages`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({
         recipient: { comment_id: commentId },
@@ -200,12 +233,12 @@ export async function sendPrivateReplyWithButton(
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase(accessToken)}/${instagramAccountId}/messages`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({
         recipient: { comment_id: commentId },
@@ -243,12 +276,12 @@ export async function sendDirectMessageWithButton(
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase(accessToken)}/${instagramAccountId}/messages`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({
         recipient: { id: userId },
@@ -282,13 +315,13 @@ export async function getUserFollowStatus(
   accessToken: string,
   recipientId: string
 ): Promise<boolean | null> {
-  const url = new URL(`${instagramGraphBase()}/${recipientId}`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${recipientId}`);
   url.searchParams.set("fields", "is_user_follow_business");
 
   try {
     const response = await fetch(url.toString(), {
       method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${rawToken(accessToken)}` },
     });
     if (!response.ok) return null;
     const data = await response.json();
@@ -313,13 +346,13 @@ export async function getUserUsername(
   accessToken: string,
   recipientId: string
 ): Promise<string | null> {
-  const url = new URL(`${instagramGraphBase()}/${recipientId}`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${recipientId}`);
   url.searchParams.set("fields", "username");
 
   try {
     const response = await fetch(url.toString(), {
       method: "GET",
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${rawToken(accessToken)}` },
     });
     if (!response.ok) return null;
     const data = await response.json();
@@ -359,12 +392,12 @@ export async function sendPrivateReplyWithLinkButton(
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase(accessToken)}/${instagramAccountId}/messages`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({
         recipient: { comment_id: commentId },
@@ -396,12 +429,12 @@ export async function sendDirectMessage(
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase(accessToken)}/${instagramAccountId}/messages`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({
         recipient: { id: userId },
@@ -425,12 +458,12 @@ export async function sendDirectMessageWithLinkButton(
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase(accessToken)}/${instagramAccountId}/messages`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({
         recipient: { id: userId },
@@ -457,12 +490,12 @@ export async function sendCommentReply(
   message: string
 ): Promise<{ id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${commentId}/replies`,
+    `${instagramGraphBase(accessToken)}/${commentId}/replies`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({ message }),
     }
@@ -475,9 +508,9 @@ export async function getMediaComments(
   accessToken: string,
   mediaId: string
 ): Promise<InstagramComment[]> {
-  const url = new URL(`${instagramGraphBase()}/${mediaId}/comments`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${mediaId}/comments`);
   url.searchParams.set("fields", "id,text,from,timestamp");
-  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("access_token", rawToken(accessToken));
 
   const response = await fetch(url.toString());
   const data = await handleResponse<{ data: InstagramComment[] }>(response);
@@ -503,11 +536,11 @@ export async function getRecentMediaComments(
 ): Promise<InstagramComment[]> {
   const results: InstagramComment[] = [];
 
-  const first = new URL(`${instagramGraphBase()}/${mediaId}/comments`);
+  const first = new URL(`${instagramGraphBase(accessToken)}/${mediaId}/comments`);
   first.searchParams.set("fields", "id,text,timestamp,from,replies{from}");
   first.searchParams.set("order", "reverse_chronological");
   first.searchParams.set("limit", "50");
-  first.searchParams.set("access_token", accessToken);
+  first.searchParams.set("access_token", rawToken(accessToken));
 
   let nextUrl: string | null = first.toString();
 
@@ -583,14 +616,14 @@ export async function getConversations(
   async function readPage(limit: number, requestedFields: string): Promise<Page> {
     // Never follow Meta's next URL: rebuild on our trusted host and carry the
     // token separately. A messages.paging cursor must never advance this list.
-    const url = new URL(`${instagramGraphBase()}/${igUserId}/conversations`);
+    const url = new URL(`${instagramGraphBase(accessToken)}/${igUserId}/conversations`);
     url.searchParams.set("platform", "instagram");
     url.searchParams.set("fields", requestedFields);
     url.searchParams.set("limit", String(limit));
     if (after) url.searchParams.set("after", after);
     return handleResponse<Page>(
       await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { Authorization: `Bearer ${rawToken(accessToken)}` },
         signal: AbortSignal.timeout(10_000),
       })
     );
@@ -653,9 +686,9 @@ export async function getConversationMessages(
   accessToken: string,
   conversationId: string
 ): Promise<InstagramMessage[]> {
-  const url = new URL(`${instagramGraphBase()}/${conversationId}`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${conversationId}`);
   url.searchParams.set("fields", "messages{id,created_time,from,to,message}");
-  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("access_token", rawToken(accessToken));
 
   const response = await fetch(url.toString());
   const data = await handleResponse<{ messages?: { data: InstagramMessage[] } }>(
@@ -665,15 +698,21 @@ export async function getConversationMessages(
 }
 
 export async function getUserInfo(accessToken: string): Promise<InstagramUser> {
-  const url = new URL(`${instagramGraphBase()}/me`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${meNode(accessToken)}`);
+  // On graph.facebook.com the Instagram account node has no `user_id`: its
+  // `id` already is the professional account ID that webhooks carry.
+  const facebook = isFacebookLoginToken(accessToken);
   url.searchParams.set(
     "fields",
-    "id,user_id,username,name,profile_picture_url,followers_count"
+    facebook
+      ? "id,username,name,profile_picture_url,followers_count"
+      : "id,user_id,username,name,profile_picture_url,followers_count"
   );
-  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("access_token", rawToken(accessToken));
 
   const response = await fetch(url.toString());
-  return handleResponse<InstagramUser>(response);
+  const user = await handleResponse<InstagramUser>(response);
+  return facebook ? { ...user, user_id: user.id } : user;
 }
 
 const MEDIA_FIELDS =
@@ -686,10 +725,10 @@ export async function getUserMedia(
   accessToken: string,
   limit = 25
 ): Promise<InstagramMedia[]> {
-  const url = new URL(`${instagramGraphBase()}/me/media`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${meNode(accessToken)}/media`);
   url.searchParams.set("fields", MEDIA_FIELDS);
   url.searchParams.set("limit", limit.toString());
-  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("access_token", rawToken(accessToken));
 
   const response = await fetch(url.toString());
   const data = await handleResponse<{ data: InstagramMedia[] }>(response);
@@ -708,10 +747,10 @@ export async function getAllUserMedia(
 ): Promise<InstagramMedia[]> {
   const results: InstagramMedia[] = [];
 
-  const first = new URL(`${instagramGraphBase()}/me/media`);
+  const first = new URL(`${instagramGraphBase(accessToken)}/${meNode(accessToken)}/media`);
   first.searchParams.set("fields", MEDIA_FIELDS);
   first.searchParams.set("limit", String(Math.min(MEDIA_PAGE_SIZE, max)));
-  first.searchParams.set("access_token", accessToken);
+  first.searchParams.set("access_token", rawToken(accessToken));
 
   let nextUrl: string | null = first.toString();
 
@@ -741,9 +780,9 @@ export async function getMediaInsights(
   mediaId: string,
   metrics: string[]
 ): Promise<InstagramMediaInsights> {
-  const url = new URL(`${instagramGraphBase()}/${mediaId}/insights`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${mediaId}/insights`);
   url.searchParams.set("metric", metrics.join(","));
-  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("access_token", rawToken(accessToken));
 
   const response = await fetch(url.toString());
   const data = await handleResponse<{
@@ -791,12 +830,12 @@ export async function getFollowerCountSeries(
   const until = Math.floor(Date.now() / 1000);
   const since = until - (span - 1) * 86_400;
 
-  const url = new URL(`${instagramGraphBase()}/${instagramAccountId}/insights`);
+  const url = new URL(`${instagramGraphBase(accessToken)}/${instagramAccountId}/insights`);
   url.searchParams.set("metric", "follower_count");
   url.searchParams.set("period", "day");
   url.searchParams.set("since", String(since));
   url.searchParams.set("until", String(until));
-  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("access_token", rawToken(accessToken));
 
   try {
     const response = await fetch(url.toString());
@@ -865,12 +904,12 @@ export async function subscribeInstagramAccountToWebhooks(
   accessToken: string
 ): Promise<{ success: boolean }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/subscribed_apps`,
+    `${instagramGraphBase(accessToken)}/${instagramAccountId}/subscribed_apps`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${rawToken(accessToken)}`,
       },
       body: JSON.stringify({
         subscribed_fields: ["comments", "messages"],
@@ -884,7 +923,7 @@ export async function subscribeInstagramAccountToWebhooks(
 export async function debugToken(inputToken: string, accessToken: string) {
   const url = new URL(`${facebookGraphBase()}/debug_token`);
   url.searchParams.set("input_token", inputToken);
-  url.searchParams.set("access_token", accessToken);
+  url.searchParams.set("access_token", rawToken(accessToken));
   const response = await fetch(url.toString());
   return handleResponse(response);
 }

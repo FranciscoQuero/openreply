@@ -1,0 +1,108 @@
+# OpenReply on Coolify: one stack with the database, Redis, the web app, the
+# worker and the cron scheduler. Coolify injects the variables below from the
+# resource's Environment Variables; only `web` gets a public domain.
+#
+# Required: NEXTAUTH_URL, NEXTAUTH_SECRET, CRON_SECRET, ENCRYPTION_KEY,
+# POSTGRES_PASSWORD, EMAIL_SERVER, EMAIL_FROM, ALLOWED_EMAILS,
+# INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, FACEBOOK_APP_SECRET,
+# WEBHOOK_VERIFY_TOKEN, META_GRAPH_API_VERSION.
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://openreply:${POSTGRES_PASSWORD}@postgres:5432/openreply
+  REDIS_URL: redis://redis:6379
+  NEXTAUTH_URL: ${NEXTAUTH_URL}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+  CRON_SECRET: ${CRON_SECRET}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  EMAIL_SERVER: ${EMAIL_SERVER}
+  EMAIL_FROM: ${EMAIL_FROM}
+  ALLOWED_EMAILS: ${ALLOWED_EMAILS}
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v25.0}
+  INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID}
+  INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET}
+  FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET}
+  WEBHOOK_VERIFY_TOKEN: ${WEBHOOK_VERIFY_TOKEN}
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openreply
+      POSTGRES_USER: openreply
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - openreply-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openreply -d openreply"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # BullMQ needs keys to stay put: never evict.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - openreply-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    # Migrations run at start, when the database is reachable (not at build).
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run start"]
+    environment:
+      <<: *app-env
+    expose:
+      - "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # /login, not /api/health: health answers 503 while the worker is down,
+    # which is not a reason to restart the web app.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/login || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    environment:
+      <<: *app-env
+    depends_on:
+      web:
+        condition: service_healthy
+
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["sh", "scripts/cron.sh"]
+    environment:
+      CRON_BASE_URL: http://web:3000
+      CRON_SECRET: ${CRON_SECRET}
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  openreply-pgdata:
+  openreply-redisdata:

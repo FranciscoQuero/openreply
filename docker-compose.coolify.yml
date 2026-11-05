@@ -22,6 +22,9 @@ x-app-env: &app-env
   INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID}
   INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET}
   FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET}
+  # "facebook" connects accounts through Facebook Login (lib/meta/facebook-login.ts).
+  META_LOGIN_MODE: ${META_LOGIN_MODE:-}
+  FACEBOOK_LOGIN_CONFIG_ID: ${FACEBOOK_LOGIN_CONFIG_ID:-}
   WEBHOOK_VERIFY_TOKEN: ${WEBHOOK_VERIFY_TOKEN}
 
 services:

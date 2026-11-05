@@ -33,6 +33,7 @@ interface Pagination {
 const STATUS_FILTERS = [
   "ALL",
   "SENT",
+  "PUBLIC_REPLY_ONLY",
   "FAILED",
   "PENDING",
   "SKIPPED_RATE_LIMIT",

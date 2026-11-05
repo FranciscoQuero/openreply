@@ -78,6 +78,7 @@ export async function reconcileComments(): Promise<void> {
       matchAnyWord: true,
       keywords: true,
       wholeWordMatch: true,
+      dmEnabled: true,
       publicReplyEnabled: true,
       workspaceId: true,
       instagramAccount: {
@@ -129,6 +130,7 @@ async function sweepCampaign({
     matchAnyWord: boolean;
     keywords: string[];
     wholeWordMatch: boolean;
+    dmEnabled: boolean;
     publicReplyEnabled: boolean;
     instagramAccount: {
       id: string;
@@ -249,7 +251,8 @@ async function sweepCampaign({
       },
     });
     const handledSet = new Set(logs.filter((log) => {
-      const dmStopped = log.status === "SENT" || log.status === "SKIPPED_PLAN_LIMIT" ||
+      const dmStopped = automation.dmEnabled === false ||
+        log.status === "SENT" || log.status === "SKIPPED_PLAN_LIMIT" ||
         log.dmDeliveryUnconfirmed || log.attempts >= MAX_COMMENT_SEND_ATTEMPTS ||
         (log.status === "FAILED" && hasLegacyUnconfirmedDelivery(log.errorMessage));
       const replyStopped = !automation.publicReplyEnabled ||

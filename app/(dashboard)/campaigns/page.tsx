@@ -23,6 +23,7 @@ interface Campaign {
   matchAnyPost: boolean;
   keywords: string[];
   matchAnyWord: boolean;
+  dmEnabled?: boolean;
   dmMessage: string;
   openingDmEnabled: boolean;
   openingDmMessage: string | null;
@@ -461,8 +462,14 @@ export default function CampaignsPage() {
                   ))}
                 </div>
 
-                {/* DM preview */}
-                <p className="text-sm text-muted truncate">&ldquo;{auto.dmMessage}{t("”")}</p>
+                {/* DM preview, or the public reply for a campaign without a DM */}
+                <p className="text-sm text-muted truncate">
+                  &ldquo;
+                  {auto.dmEnabled === false
+                    ? auto.publicReplyMessages?.[0] ?? auto.publicReplyMessage ?? ""
+                    : auto.dmMessage}
+                  {t("”")}
+                </p>
 
                 {/* Tracked link sent */}
                 {auto.trackedLinks[0]?.trackedUrl && (

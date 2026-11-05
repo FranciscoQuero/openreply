@@ -1764,3 +1764,102 @@ it("retains the public reply claim if sending succeeded but its log write failed
   expect(sendCommentReply).toHaveBeenCalledTimes(1);
   expect(mockSendPrivateReply).toHaveBeenCalledTimes(1);
 });
+
+describe("DM Worker — public-reply-only campaigns", () => {
+  const publicOnlyAutomation = {
+    ...mockAutomation,
+    dmEnabled: false,
+    dmMessage: "",
+    publicReplyEnabled: true,
+    publicReplyMessages: ["Here is your code: SPRING10"],
+  };
+
+  beforeEach(() => {
+    mockPrisma.automation.findMany.mockResolvedValue([publicOnlyAutomation]);
+  });
+
+  it("posts the public reply, records it, and sends no DM", async () => {
+    const { sendCommentReply } = await import("@/lib/meta/client");
+    vi.mocked(sendCommentReply).mockReset().mockResolvedValue({ id: "reply_1" });
+
+    await getProcessor()(createMockJob());
+
+    expect(sendCommentReply).toHaveBeenCalledTimes(1);
+    expect(sendCommentReply).toHaveBeenCalledWith(
+      "decrypted_token",
+      "comment_555",
+      "Here is your code: SPRING10"
+    );
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "PUBLIC_REPLY_ONLY",
+          publicReplySentAt: expect.any(Date),
+        }),
+      })
+    );
+    // No DM of any kind, and no DM quota or rate-limit slot is spent.
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockSendPrivateReplyWithLinkButton).not.toHaveBeenCalled();
+    expect(mockSendPrivateReplyWithButton).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
+    expect(mockReserveDMSlot).not.toHaveBeenCalled();
+  });
+
+  it("logs a failed public reply as FAILED, still without a DM", async () => {
+    const { sendCommentReply, MetaApiError } = await import("@/lib/meta/client");
+    vi.mocked(sendCommentReply)
+      .mockReset()
+      .mockRejectedValue(new MetaApiError(100, undefined, undefined, "Invalid comment"));
+
+    await getProcessor()(createMockJob());
+
+    expect(mockPrisma.dmLog.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "FAILED",
+          publicReplyError: expect.any(String),
+        }),
+      })
+    );
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
+  });
+
+  it("does nothing once the public reply was already posted", async () => {
+    const { sendCommentReply } = await import("@/lib/meta/client");
+    vi.mocked(sendCommentReply).mockReset().mockResolvedValue({ id: "reply_1" });
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      status: "PUBLIC_REPLY_ONLY",
+      attempts: 0,
+      publicReplySentAt: new Date(),
+      publicReplyDeliveryUnconfirmed: false,
+      dmDeliveryUnconfirmed: false,
+    });
+
+    await getProcessor()(createMockJob());
+
+    expect(sendCommentReply).not.toHaveBeenCalled();
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+  });
+
+  it("never answers DM keyword triggers", async () => {
+    await getProcessor()({
+      name: "process-message",
+      data: {
+        instagramAccountId: "ig_456",
+        messageId: "mid_abc",
+        messageText: "LINK",
+        senderId: "commenter_999",
+      },
+      id: "message_job_002",
+      attemptsMade: 0,
+    });
+
+    expect(mockPrisma.automation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ dmTriggerEnabled: true, dmEnabled: true }),
+      })
+    );
+  });
+});

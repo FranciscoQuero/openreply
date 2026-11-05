@@ -36,7 +36,9 @@ const createAutomationSchema = z
     keywords: z.array(z.string().min(1).max(50)).max(10).optional().default([]),
     matchAnyWord: z.boolean().optional().default(false),
     dmTriggerEnabled: z.boolean().optional().default(false),
-    dmMessage: z.string().min(1).max(1000),
+    // false = public-reply-only campaign (no DM of any kind).
+    dmEnabled: z.boolean().optional().default(true),
+    dmMessage: z.string().max(1000).optional().default(""),
     openingDmEnabled: z.boolean().optional().default(false),
     openingDmMessage: z.string().max(1000).optional().nullable(),
     openingDmButtonLabel: z.string().max(64).optional().nullable(),
@@ -80,6 +82,23 @@ const createAutomationSchema = z
     message: "Add at least one keyword, or match any word",
     path: ["keywords"],
   })
+  // A DM campaign needs its DM; a public-reply-only campaign needs a reply.
+  .refine((d) => !d.dmEnabled || Boolean(d.dmMessage.trim()), {
+    message: "Add the DM message",
+    path: ["dmMessage"],
+  })
+  .refine(
+    (d) =>
+      d.dmEnabled ||
+      (d.publicReplyEnabled &&
+        [...d.publicReplyMessages, d.publicReplyMessage ?? ""].some((m) =>
+          m.trim()
+        )),
+    {
+      message: "A campaign without a DM needs at least one public reply",
+      path: ["publicReplyMessages"],
+    }
+  )
   // An opening DM needs both a message and a button label.
   .refine(
     (d) =>
@@ -100,7 +119,10 @@ const updateAutomationSchema = z.object({
   keywords: z.array(z.string().min(1).max(50)).max(10).optional(),
   matchAnyWord: z.boolean().optional(),
   dmTriggerEnabled: z.boolean().optional(),
-  dmMessage: z.string().min(1).max(1000).optional(),
+  dmEnabled: z.boolean().optional(),
+  // May be empty only for a public-reply-only campaign; checked after merging
+  // with the stored campaign below.
+  dmMessage: z.string().max(1000).optional(),
   openingDmEnabled: z.boolean().optional(),
   openingDmMessage: z.string().max(1000).optional().nullable(),
   openingDmButtonLabel: z.string().max(64).optional().nullable(),
@@ -228,7 +250,10 @@ export async function GET(request: NextRequest) {
     const item = analytics.get(row.automationId);
     if (!item) continue;
     const count = row._count._all;
-    if (row.status === "SENT") item.sent += count;
+    // A public-reply-only campaign's deliveries are its public replies.
+    if (row.status === "SENT" || row.status === "PUBLIC_REPLY_ONLY") {
+      item.sent += count;
+    }
     if (row.status === "FAILED") item.failed += count;
     if (row.status.startsWith("SKIPPED_")) item.skipped += count;
   }
@@ -358,8 +383,12 @@ export async function POST(request: NextRequest) {
     secondaryLabel: parsed.data.secondaryButtonLabel,
   });
 
-  const { pendingNextReel, matchAnyPost, matchAnyWord, openingDmEnabled } =
+  const { pendingNextReel, matchAnyPost, matchAnyWord, dmEnabled } =
     parsed.data;
+  // Without a DM, none of the DM-only steps apply.
+  const openingDmEnabled = dmEnabled && parsed.data.openingDmEnabled;
+  const requireFollow = dmEnabled && parsed.data.requireFollow;
+  const followUpEnabled = dmEnabled && parsed.data.followUpEnabled;
   // A post is only stored for the "specific post" trigger.
   const isSpecificPost = !pendingNextReel && !matchAnyPost;
   const publicReplyList = (
@@ -383,8 +412,9 @@ export async function POST(request: NextRequest) {
       matchAnyPost,
       keywords: matchAnyWord ? [] : parsed.data.keywords,
       matchAnyWord,
-      dmTriggerEnabled: parsed.data.dmTriggerEnabled,
-      dmMessage: parsed.data.dmMessage,
+      dmTriggerEnabled: dmEnabled && parsed.data.dmTriggerEnabled,
+      dmEnabled,
+      dmMessage: dmEnabled ? parsed.data.dmMessage.trim() : "",
       openingDmEnabled,
       openingDmMessage: openingDmEnabled
         ? parsed.data.openingDmMessage || null
@@ -392,19 +422,19 @@ export async function POST(request: NextRequest) {
       openingDmButtonLabel: openingDmEnabled
         ? parsed.data.openingDmButtonLabel || null
         : null,
-      linkButtonLabel: parsed.data.linkButtonLabel || null,
-      requireFollow: parsed.data.requireFollow,
-      followPromptMessage: parsed.data.requireFollow
+      linkButtonLabel: dmEnabled ? parsed.data.linkButtonLabel || null : null,
+      requireFollow,
+      followPromptMessage: requireFollow
         ? parsed.data.followPromptMessage || null
         : null,
-      followPromptButtonLabel: parsed.data.requireFollow
+      followPromptButtonLabel: requireFollow
         ? parsed.data.followPromptButtonLabel || null
         : null,
-      followUpEnabled: parsed.data.followUpEnabled,
-      followUpMessage: parsed.data.followUpEnabled
+      followUpEnabled,
+      followUpMessage: followUpEnabled
         ? parsed.data.followUpMessage || null
         : null,
-      followUpDelayMinutes: parsed.data.followUpEnabled
+      followUpDelayMinutes: followUpEnabled
         ? parsed.data.followUpDelayMinutes
         : 0,
       publicReplyEnabled: parsed.data.publicReplyEnabled,
@@ -540,6 +570,60 @@ export async function PATCH(request: NextRequest) {
   if (automationData.publicReplyEnabled === false) {
     automationData.publicReplyMessages = [];
     automationData.publicReplyMessage = null;
+  }
+  if (automationData.dmMessage !== undefined) {
+    automationData.dmMessage = automationData.dmMessage.trim();
+  }
+  // A campaign without a DM (now or already stored that way) keeps every
+  // DM-only step off, whatever this update sends.
+  if ((automationData.dmEnabled ?? existing.dmEnabled) === false) {
+    automationData.dmMessage = "";
+    automationData.dmTriggerEnabled = false;
+    automationData.openingDmEnabled = false;
+    automationData.openingDmMessage = null;
+    automationData.openingDmButtonLabel = null;
+    automationData.linkButtonLabel = null;
+    automationData.requireFollow = false;
+    automationData.followPromptMessage = null;
+    automationData.followPromptButtonLabel = null;
+    automationData.followUpEnabled = false;
+    automationData.followUpMessage = null;
+    automationData.followUpDelayMinutes = 0;
+  }
+
+  // When an update touches the delivery, validate the campaign as it will be
+  // stored, not just the partial update: a DM campaign needs a DM message, a
+  // public-reply-only one needs a reply. Other updates cannot break it.
+  const touchesDelivery = (
+    [
+      "dmEnabled",
+      "dmMessage",
+      "publicReplyEnabled",
+      "publicReplyMessage",
+      "publicReplyMessages",
+    ] as const
+  ).some((key) => automationData[key] !== undefined);
+  const merged = { ...existing, ...automationData };
+  const mergedDmEnabled = merged.dmEnabled !== false;
+  const mergedHasPublicReply =
+    Boolean(merged.publicReplyEnabled) &&
+    [...(merged.publicReplyMessages ?? []), merged.publicReplyMessage ?? ""].some(
+      (m) => m.trim()
+    );
+  if (touchesDelivery && mergedDmEnabled && !(merged.dmMessage ?? "").trim()) {
+    return NextResponse.json(
+      { success: false, error: "Add the DM message" },
+      { status: 400 }
+    );
+  }
+  if (touchesDelivery && !mergedDmEnabled && !mergedHasPublicReply) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: "A campaign without a DM needs at least one public reply",
+      },
+      { status: 400 }
+    );
   }
 
   // One transaction, so a save never lands half applied. Updating the campaign

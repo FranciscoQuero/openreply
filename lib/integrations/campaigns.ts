@@ -22,7 +22,7 @@ export async function getCampaign(context: ServiceContext, id: string) {
   const campaign = await prisma.automation.findFirst({
     where: { id, workspaceId: context.workspaceId },
     select: {
-      ...summarySelect, wholeWordMatch: true, dmTriggerEnabled: true,
+      ...summarySelect, wholeWordMatch: true, dmTriggerEnabled: true, dmEnabled: true,
       openingDmEnabled: true, openingDmMessage: true, openingDmButtonLabel: true,
       linkButtonLabel: true, requireFollow: true, followPromptMessage: true,
       followPromptButtonLabel: true, followUpEnabled: true, followUpMessage: true,

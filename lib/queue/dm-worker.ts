@@ -354,7 +354,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
     const alreadyDmd = existingLog?.status === "SENT";
     const alreadyPublicReplied = Boolean(existingLog?.publicReplySentAt);
-    const needsDm = !alreadyDmd && !existingLog?.dmDeliveryUnconfirmed &&
+    // Public-reply-only campaigns (dmEnabled false) never send a DM; the
+    // public reply below is the whole delivery.
+    const dmEnabled = automation.dmEnabled !== false;
+    const needsDm = dmEnabled && !alreadyDmd &&
+      !existingLog?.dmDeliveryUnconfirmed &&
       (existingLog?.attempts ?? 0) < MAX_COMMENT_SEND_ATTEMPTS;
 
     // Skip only when there is genuinely nothing left to do. A comment whose DM
@@ -476,7 +480,15 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           where: {
             automationId_commentId: { automationId: automation.id, commentId },
           },
-          data: { publicReplySentAt: new Date(), publicReplyError: null, publicReplyDeliveryUnconfirmed: false },
+          data: {
+            publicReplySentAt: new Date(),
+            publicReplyError: null,
+            publicReplyDeliveryUnconfirmed: false,
+            // With no DM leg, the public reply is the campaign's outcome.
+            ...(dmEnabled
+              ? {}
+              : { status: "PUBLIC_REPLY_ONLY" as const, errorMessage: null }),
+          },
         });
       } catch (error) {
         console.error(
@@ -491,7 +503,16 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
                 commentId,
               },
             },
-            data: { publicReplyError: formatError(classifySendError(error)), publicReplyDeliveryUnconfirmed: !isConfirmedSendRejection(error) },
+            data: {
+              publicReplyError: formatError(classifySendError(error)),
+              publicReplyDeliveryUnconfirmed: !isConfirmedSendRejection(error),
+              ...(dmEnabled
+                ? {}
+                : {
+                    status: "FAILED" as const,
+                    errorMessage: formatError(classifySendError(error)),
+                  }),
+            },
           })
           .catch(() => {});
       }
@@ -1284,6 +1305,8 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
     where: {
       ...connectionScope(job.data),
       dmTriggerEnabled: true,
+      // A DM trigger answers with a DM, which public-reply-only campaigns never send.
+      dmEnabled: true,
       isActive: true,
       instagramAccount: { instagramId: instagramAccountId },
     },

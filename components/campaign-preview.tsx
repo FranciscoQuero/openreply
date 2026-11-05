@@ -26,6 +26,8 @@ interface CampaignPreviewProps {
   // The DM keyword trigger gets its own thread: the user messages first, and
   // the opening DM is skipped because the conversation is already open.
   dmTriggerEnabled: boolean;
+  // false = public-reply-only campaign: there is no DM thread to preview.
+  dmEnabled?: boolean;
   publicReplyEnabled: boolean;
   publicReplyMessage: string;
   openingDmEnabled: boolean;
@@ -482,19 +484,22 @@ function DmScreen({
 export default function CampaignPreview(props: CampaignPreviewProps) {
   const { t } = useI18n();
   const { tab, onTabChange } = props;
+  const dmEnabled = props.dmEnabled ?? true;
   const tabs: { key: PreviewTab; label: string }[] = [
     { key: "post", label: t("Post") },
     { key: "comments", label: t("Comments") },
-    { key: "dm", label: "DM" },
-    ...(props.dmTriggerEnabled
+    ...(dmEnabled ? [{ key: "dm" as const, label: "DM" }] : []),
+    ...(dmEnabled && props.dmTriggerEnabled
       ? [{ key: "dmTrigger" as const, label: t("DM trigger") }]
       : []),
   ];
 
   // The DM-trigger tab disappears when the trigger is switched off; fall back
-  // to the comment thread rather than rendering an empty phone.
-  const activeTab: PreviewTab =
-    tab === "dmTrigger" && !props.dmTriggerEnabled ? "dm" : tab;
+  // to the comment thread rather than rendering an empty phone. Without a DM
+  // at all, the public reply under the comment is what there is to show.
+  const activeTab: PreviewTab = !dmEnabled && (tab === "dm" || tab === "dmTrigger")
+    ? "comments"
+    : tab === "dmTrigger" && !props.dmTriggerEnabled ? "dm" : tab;
 
   return (
     <div className="flex flex-col items-center gap-5">

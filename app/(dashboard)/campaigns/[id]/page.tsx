@@ -24,6 +24,7 @@ interface Campaign {
   keywords: string[];
   matchAnyWord: boolean;
   dmTriggerEnabled: boolean;
+  dmEnabled?: boolean;
   dmMessage: string;
   openingDmEnabled: boolean;
   openingDmMessage: string | null;
@@ -249,17 +250,19 @@ export default function CampaignDetailPage() {
           </Summary>
         )}
 
-        <Summary title={t("And then, they will get a DM")}>
-          <FieldBox>{campaign.dmMessage}</FieldBox>
-          {hasLink && (
-            <FieldBox>{campaign.linkButtonLabel || "Open link"}</FieldBox>
-          )}
-          {hasSecondLink && (
-            <FieldBox>
-              {campaign.trackedLinks?.[1]?.label || "Open link"}
-            </FieldBox>
-          )}
-        </Summary>
+        {campaign.dmEnabled !== false && (
+          <Summary title={t("And then, they will get a DM")}>
+            <FieldBox>{campaign.dmMessage}</FieldBox>
+            {hasLink && (
+              <FieldBox>{campaign.linkButtonLabel || "Open link"}</FieldBox>
+            )}
+            {hasSecondLink && (
+              <FieldBox>
+                {campaign.trackedLinks?.[1]?.label || "Open link"}
+              </FieldBox>
+            )}
+          </Summary>
+        )}
 
         {hasLink && (
           <Summary title={t("The exact link sent")}>
@@ -349,6 +352,7 @@ export default function CampaignDetailPage() {
             caption=""
             sampleComment={campaign.matchAnyWord ? t("nice!") : campaign.keywords[0] ?? "LINK"}
             dmTriggerEnabled={campaign.dmTriggerEnabled}
+            dmEnabled={campaign.dmEnabled !== false}
             publicReplyEnabled={campaign.publicReplyEnabled}
             publicReplyMessage={publicReplies[0] ?? ""}
             openingDmEnabled={campaign.openingDmEnabled}

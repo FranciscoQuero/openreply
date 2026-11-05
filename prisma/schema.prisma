@@ -201,6 +201,10 @@ model Automation {
   // keywords above. Independent of the post trigger — a DM has no media, so
   // postId / matchAnyPost do not apply to it.
   dmTriggerEnabled Boolean @default(false)
+  // false = public-reply-only campaign: the public comment reply is the whole
+  // delivery and no DM (opening DM, follow gate, link or follow-up) is sent.
+  // dmMessage is then stored as an empty string.
+  dmEnabled      Boolean @default(true)
   dmMessage      String
   openingDmEnabled     Boolean @default(false)
   openingDmMessage     String?
@@ -392,6 +396,9 @@ enum DmStatus {
   SKIPPED_RATE_LIMIT
   SKIPPED_PLAN_LIMIT
   SKIPPED_NO_MATCH
+  // Public-reply-only campaign: the public reply was posted and, by design,
+  // no DM was sent.
+  PUBLIC_REPLY_ONLY
 }
 
 enum WebhookStatus {

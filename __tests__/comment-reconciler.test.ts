@@ -136,3 +136,59 @@ describe("comment polling does not recreate unsafe sends", () => {
     },
   );
 });
+
+describe("comment polling for public-reply-only campaigns", () => {
+  beforeEach(() => {
+    queueAdd.mockReset();
+    mockPrisma.operationalEvent.create.mockResolvedValue({});
+    mockPrisma.$queryRaw.mockResolvedValue([]);
+    mockPrisma.automation.findMany.mockResolvedValue([
+      {
+        id: "campaign",
+        name: "Campaign",
+        workspaceId: "workspace",
+        postId: POST,
+        matchAnyWord: false,
+        keywords: ["AI"],
+        dmEnabled: false,
+        publicReplyEnabled: true,
+        instagramAccount: {
+          id: "connection",
+          instagramId: "owner",
+          provider: "META",
+          accessToken: "test",
+        },
+      },
+    ]);
+    readComments.mockResolvedValue([
+      { id: "replied", text: "AI", from: { id: "a" }, timestamp: new Date().toISOString() },
+      { id: "pending", text: "AI", from: { id: "b" }, timestamp: new Date().toISOString() },
+    ]);
+  });
+
+  it("treats a posted public reply as done, with no DM to wait for", async () => {
+    mockPrisma.dmLog.findMany.mockResolvedValue([
+      {
+        commentId: "replied",
+        status: "PUBLIC_REPLY_ONLY",
+        attempts: 0,
+        dmDeliveryUnconfirmed: false,
+        publicReplySentAt: new Date(),
+        publicReplyDeliveryUnconfirmed: false,
+      },
+      {
+        commentId: "pending",
+        status: "FAILED",
+        attempts: 0,
+        dmDeliveryUnconfirmed: false,
+        publicReplySentAt: null,
+        publicReplyDeliveryUnconfirmed: false,
+      },
+    ]);
+
+    await reconcileComments();
+
+    expect(queueAdd).toHaveBeenCalledTimes(1);
+    expect(queueAdd.mock.calls[0][1].commentId).toBe("pending");
+  });
+});

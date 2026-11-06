@@ -1,6 +1,7 @@
 # Interface languages
 
-OpenReply defaults to English. Choose **English**, **繁體中文**, **Português (Brasil)**, **Русский** or **Español** in the dashboard
+OpenReply defaults to English; set `DEFAULT_LOCALE` (`en`, `es`, `pt-BR`,
+`ru` or `zh-TW`) to show another language until someone picks one. Choose **English**, **繁體中文**, **Português (Brasil)**, **Русский** or **Español** in the dashboard
 sidebar, under **Settings → Interface language**, or on the sign-in screen.
 The choice is stored in a browser cookie for one year and applies to the
 dashboard, sign-in screens, workspace invitations, and shared campaign reports.

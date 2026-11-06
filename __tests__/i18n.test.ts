@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createI18n, resolveLocale } from "../lib/i18n";
 import es from "../lib/i18n/es.json";
 import ptBR from "../lib/i18n/pt-BR.json";
 import ru from "../lib/i18n/ru.json";
 import zhTW from "../lib/i18n/zh-TW.json";
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("interface translations", () => {
   it("keeps English as the default for absent or unsupported preferences", () => {
@@ -14,6 +18,16 @@ describe("interface translations", () => {
     expect(resolveLocale("pt-BR")).toBe("pt-BR");
     expect(resolveLocale("ru")).toBe("ru");
     expect(resolveLocale("es")).toBe("es");
+  });
+
+  it("uses DEFAULT_LOCALE when there is no valid preference", () => {
+    vi.stubEnv("DEFAULT_LOCALE", "es");
+    expect(resolveLocale(undefined)).toBe("es");
+    expect(resolveLocale("fr")).toBe("es");
+    expect(resolveLocale("en")).toBe("en");
+
+    vi.stubEnv("DEFAULT_LOCALE", "fr");
+    expect(resolveLocale(undefined)).toBe("en");
   });
 
   it("renders both interface languages from the same keys", () => {

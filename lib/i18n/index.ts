@@ -23,8 +23,14 @@ export function isLocale(value: unknown): value is Locale {
   return value === "en" || value === "zh-TW" || value === "pt-BR" || value === "ru" || value === "es";
 }
 
+/** The language shown before anyone picks one: DEFAULT_LOCALE, or English. */
+export function defaultLocale(): Locale {
+  const configured = process.env.DEFAULT_LOCALE;
+  return isLocale(configured) ? configured : "en";
+}
+
 export function resolveLocale(value: unknown): Locale {
-  return isLocale(value) ? value : "en";
+  return isLocale(value) ? value : defaultLocale();
 }
 
 type Placeholders<S extends string> =
